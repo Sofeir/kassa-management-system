@@ -106,12 +106,20 @@ function seedData() {
     { t: now - 50 * 60 * m, who: ME, act: 'Создана столовая «Буфет»', scope: 'h_buf', org: 'o1' },
   ];
 
-  return { v: 1, orgs: [{ id: 'o1', name: 'Столовая-Урал' }, { id: 'o2', name: 'Урал-Сервис' }], nodes, items, over, profiles, users, log };
+  // шаблон рабочего места: настройки, общие для касс (без номера ФН, срока ФН и IP: они у каждой кассы свои)
+  const templates = [
+    { id: 't1', org: 'o1', name: 'Касса столовой: АТОЛ + Т-Банк', eq: tplEq(nodes.find(n => n.id === 'k1').eq), from: 'k1' },
+    { id: 't2', org: 'o1', name: 'Буфет без весов', eq: tplEq(nodes.find(n => n.id === 'k2').eq), from: 'k2' },
+  ];
+  nodes.find(n => n.id === 'k1').tpl = 't1';
+  nodes.find(n => n.id === 'k2').tpl = 't2';
+
+  return { v: 2, orgs: [{ id: 'o1', name: 'Столовая-Урал' }, { id: 'o2', name: 'Урал-Сервис' }], nodes, items, over, profiles, users, log, templates, secOk: {} };
 }
 
 function load() {
   try { D = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (_) { D = null; }
-  if (!D || D.v !== 1) { D = seedData(); save(); }
+  if (!D || D.v !== 2) { D = seedData(); save(); }
 }
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(D)); } catch (_) {} }
 function resetData() { D = seedData(); save(); }
@@ -168,6 +176,78 @@ function setOver(scope, item, patch) {
   if (!o) { o = { scope, item }; D.over.push(o); }
   Object.assign(o, patch);
   if (o.price == null && o.hidden == null) D.over.splice(D.over.indexOf(o), 1);
+}
+
+/* ---------- шаблоны рабочих мест ---------- */
+// Что переносит шаблон. Номер ФН, срок ФН и IP-адрес ККТ у каждой кассы свои и не переносятся.
+function tplEq(e) {
+  return { kkt: { model: e.kkt.model, conn: e.kkt.conn }, acq: { ...e.acq }, printer: { ...e.printer }, scale: { ...e.scale }, display: { ...e.display }, sbp: e.sbp };
+}
+function applyTpl(k, t) {
+  const e = k.eq, s = t.eq;
+  Object.assign(e.kkt, s.kkt); Object.assign(e.acq, s.acq); Object.assign(e.printer, s.printer);
+  Object.assign(e.scale, s.scale); Object.assign(e.display, s.display); e.sbp = s.sbp;
+  k.tpl = t.id;
+}
+// касса совпадает с шаблоном?
+const tplMatch = (k, t) => JSON.stringify(tplEq(k.eq)) === JSON.stringify(t.eq);
+
+/* ---------- журнал безопасности ----------
+   Касса сама пишет подозрительные действия кассира и присылает их вместе с продажами.
+   Здесь события придуманы (стабильно по кассе и дню), чтобы показать интерфейс. */
+const SEC_TYPES = {
+  remove: ['Удаление из чека', 'w'], cancel: ['Отмена чека', 'b'], refund: ['Возврат', 'b'],
+  discount: ['Скидка вручную', 'w'], cashout: ['Изъятие наличных', 'i'], drawer: ['Ящик без продажи', 'b'],
+  pin: ['Неверный PIN', 'w'],
+};
+const SEC_WEIGHTS = [['remove', 34], ['discount', 20], ['refund', 12], ['cancel', 12], ['cashout', 9], ['drawer', 8], ['pin', 5]];
+const SPARE_CASHIERS = ['Сидорова Мария', 'Орлов Игорь'];
+function cashiersOf(k) {
+  const c = chain(k.id);
+  const us = D.users.filter(u => u.org === k.org && u.access.some(a => c.includes(a))).map(u => u.name);
+  return us.length ? us : SPARE_CASHIERS;
+}
+function secDay(k, date) {
+  const r = rng('sec' + k.id + date), out = [], who = cashiersOf(k);
+  const n = Math.floor(r() * r() * 5);
+  const menu = effectiveMenu(k.parent).filter(x => !x.hidden);
+  const today = date === ymd(new Date()), nowT = Date.now();
+  for (let i = 0; i < n; i++) {
+    let x = r() * 100, type = 'remove';
+    for (const [t, w] of SEC_WEIGHTS) { if (x < w) { type = t; break; } x -= w; }
+    const [y, mo, d] = date.split('-').map(Number);
+    const t = new Date(y, mo - 1, d, 8 + Math.floor(r() * 11), Math.floor(r() * 60)).getTime();
+    if (today && t > nowT) continue;
+    const chk = 100 + Math.floor(r() * 300), base = Math.round((180 + r() * 900) / 10) * 10;
+    const e = { id: k.id + date + i, t, org: k.org, kassa: k.id, who: who[Math.floor(r() * who.length)], type, chk: null, sum: null, text: '', hi: false };
+    if (type === 'remove') {
+      const it = menu.length ? menu[Math.floor(r() * menu.length)] : { item: { name: 'Позиция' }, price: 100 };
+      const q = r() < .8 ? 1 : 2;
+      Object.assign(e, { chk, sum: it.price * q, text: `«${it.item.name}» × ${q} убрано из чека до оплаты` });
+      e.hi = r() < .15; if (e.hi) e.text += ', после печати предчека';
+    } else if (type === 'cancel') {
+      Object.assign(e, { chk, sum: base, text: `Чек на ${2 + Math.floor(r() * 5)} позиции отменён целиком`, hi: base >= 700 });
+    } else if (type === 'refund') {
+      const pay = r() < .55 ? 'наличными' : 'на карту';
+      Object.assign(e, { chk, sum: base, text: `Возврат ${pay} по чеку от ${r() < .7 ? 'этого дня' : 'прошлой смены'}`, hi: pay === 'наличными' && base >= 500 });
+    } else if (type === 'discount') {
+      const pct = [5, 10, 10, 15, 20, 30][Math.floor(r() * 6)];
+      Object.assign(e, { chk, sum: Math.round(base * pct / 100), text: `Скидка ${pct}% на чек ${base} ₽`, hi: pct >= 20 });
+    } else if (type === 'cashout') {
+      const s = (2 + Math.floor(r() * 9)) * 1000;
+      Object.assign(e, { sum: s, text: 'Изъятие наличных из ящика', hi: s >= 8000 });
+    } else if (type === 'drawer') {
+      Object.assign(e, { text: 'Денежный ящик открыт кнопкой, без продажи', hi: true });
+    } else {
+      Object.assign(e, { text: '3 неверных PIN подряд, вход закрыт на 5 минут', hi: r() < .4 });
+    }
+    out.push(e);
+  }
+  return out;
+}
+function secEvents(scope, period) {
+  const days = periodDays(period);
+  return kassasUnder(scope).flatMap(k => days.flatMap(d => secDay(k, d))).sort((a, b) => b.t - a.t);
 }
 
 /* ---------- журнал ---------- */

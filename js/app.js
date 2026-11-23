@@ -14,10 +14,10 @@ const ST = { online: ['', 'на связи'], late: ['w', 'давно'], offline
 /* ---------- состояние ---------- */
 const UI_KEY = 'asoft-mgr-ui';
 load();
-const S = Object.assign({ org: D.orgs[0].id, page: 'overview', node: null, period: 'today', uTab: 'users', folded: {}, orgOpen: false },
+const S = Object.assign({ org: D.orgs[0].id, page: 'overview', node: null, period: 'today', uTab: 'users', folded: {}, orgOpen: false, secType: '', secWho: '', secNew: false },
   (() => { try { return JSON.parse(localStorage.getItem(UI_KEY)) || {}; } catch (_) { return {}; } })());
 S.orgOpen = false;
-function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify({ org: S.org, page: S.page, node: S.node, period: S.period, uTab: S.uTab, folded: S.folded })); } catch (_) {} }
+function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify({ org: S.org, page: S.page, node: S.node, period: S.period, uTab: S.uTab, folded: S.folded, secType: S.secType, secWho: S.secWho, secNew: S.secNew })); } catch (_) {} }
 function fixState() {
   if (!orgById(S.org)) S.org = D.orgs[0].id;
   if (S.node && (!nodeById(S.node) || nodeById(S.node).org !== S.org)) S.node = null;
@@ -25,7 +25,7 @@ function fixState() {
 const scope = () => S.node || S.org;
 const myOrg = () => orgById(S.org);
 
-const PAGES = [['overview', 'Обзор', 'home'], ['structure', 'Структура', 'tree'], ['menu', 'Меню', 'menu'], ['users', 'Пользователи', 'users'], ['kassas', 'Кассы', 'reg'], ['reports', 'Отчёты', 'rep'], ['journal', 'Журнал', 'log']];
+const PAGES = [['overview', 'Обзор', 'home'], ['structure', 'Структура', 'tree'], ['menu', 'Меню', 'menu'], ['users', 'Пользователи', 'users'], ['kassas', 'Кассы', 'reg'], ['templates', 'Шаблоны', 'tpl'], ['reports', 'Отчёты', 'rep'], ['security', 'Безопасность', 'shield'], ['journal', 'Журнал', 'log']];
 
 /* ---------- каркас ---------- */
 function render() {
@@ -59,6 +59,8 @@ function pageHtml() {
     case 'users': return pUsers();
     case 'kassas': return pKassas();
     case 'reports': return pReports();
+    case 'templates': return pTemplates();
+    case 'security': return pSecurity();
     case 'journal': return pJournal();
     default: return pOverview();
   }
@@ -91,7 +93,9 @@ function pOverview() {
   const fnWarn = ks.map(k => ({ k, days: Math.ceil((Date.parse(k.eq.kkt.fnTill) - Date.now()) / 864e5) })).filter(x => x.days <= 30).sort((a, b) => a.days - b.days);
   const max = Math.max(1, ...s.rows.map(r => r.sum));
   const list = [...ks].sort((a, b) => a.last - b.last);
+  const secT = secEvents(sc, 'today'), secP = secT.length ? 'today' : 'week', sec = secT.length ? secT : secEvents(sc, 'week'), secHi = sec.filter(e => e.hi && !D.secOk[e.id]).length;
   return withTree(`${head('Обзор')}
+    ${sec.length ? `<div class="note ${secHi ? 'w' : ''}">${ico('shield')}<span style="flex:1"><b>Журнал безопасности:</b> ${secP === 'today' ? 'сегодня' : 'за 7 дней'} ${sec.length} ${plural(sec.length, 'событие', 'события', 'событий')}${secHi ? `, из них ${secHi} ${plural(secHi, 'требует', 'требуют', 'требуют')} внимания` : ''}.</span><button class="btn sm" data-act="sec-open" data-id="${secP}">Открыть</button></div>` : ''}
     ${fnWarn.length ? `<div class="note w">${ico('warn')}<span><b>Срок ФН заканчивается:</b> ${fnWarn.slice(0, 3).map(x => `${esc(x.k.name)} (${esc(nameOf(x.k.parent))}, ${esc(nameOf(nodeById(x.k.parent).parent))}) — ${dmy(x.k.eq.kkt.fnTill)}, ${x.days < 0 ? 'уже истёк' : 'осталось ' + x.days + ' дн'}`).join('; ')}${fnWarn.length > 3 ? ` и ещё ${fnWarn.length - 3}` : ''}.</span></div>` : ''}
     <div class="kpis">
       <div class="kpi"><div class="l">Выручка сегодня</div><div class="v m">${rub(s.tot.sum)}</div><div class="d">по ${s.kassas} кассам</div></div>
@@ -187,21 +191,26 @@ function pKassas() {
   const sc = scope(), ks = kassasUnder(sc);
   return withTree(`${head('Кассы', '', sc)}
     <div class="note">${ico('info')}<span>Настройки оборудования меняются удалённо: касса применит их сама при ближайшей связи с сервером. Выберите кассу.</span></div>
-    <div class="card flush">${ks.length ? `<table><tr><th>Касса</th><th>Где</th><th>Связь</th><th>ККТ · ФН до</th><th>Эквайринг</th><th>СБП</th></tr>${ks.map(k => {
+    <div class="card flush">${ks.length ? `<table><tr><th>Касса</th><th>Где</th><th>Связь</th><th>ККТ · ФН до</th><th>Эквайринг</th><th>Шаблон</th></tr>${ks.map(k => {
       const st = statusOf(k), days = Math.ceil((Date.parse(k.eq.kkt.fnTill) - Date.now()) / 864e5);
       return `<tr class="click" data-act="kassa-open" data-id="${k.id}"><td><b>${esc(k.name)}</b></td><td class="muted">${esc(nameOf(k.parent))}, ${esc(nameOf(nodeById(k.parent).parent))}</td>
         <td><span class="tag ${ST[st][0]}">${ST[st][1]}</span> <span class="muted">${ago(k.last)}</span></td>
-        <td>${esc(k.eq.kkt.model)} · <span class="${days <= 30 ? 'tag w' : ''}">${dmy(k.eq.kkt.fnTill)}</span></td><td>${esc(k.eq.acq.model)}</td><td>${k.eq.sbp ? '<span class="tag">включена</span>' : '<span class="tag n">выключена</span>'}</td></tr>`;
+        <td>${esc(k.eq.kkt.model)} · <span class="${days <= 30 ? 'tag w' : ''}">${dmy(k.eq.kkt.fnTill)}</span></td><td>${esc(k.eq.acq.model)}</td><td>${tplTag(k)}</td></tr>`;
     }).join('')}</table>` : '<div class="empty">Касс нет.</div>'}</div>`);
 }
 
 function kassaForm(k) {
-  const e = k.eq, sel = (name, opts, v) => `<select class="input" name="${name}">${opts.map(o => `<option ${o === v ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+  const ts = D.templates.filter(t => t.org === S.org), cur = k.tpl && tplById(k.tpl);
+  return `<div class="tplbar">${ico('tpl')}<span class="grow">${cur ? `Шаблон: <b>${esc(cur.name)}</b>${tplMatch(k, cur) ? '' : ' <span class="tag w">изменена вручную</span>'}` : 'Касса без шаблона'}</span>
+    <div class="tplrow">${ts.length ? `<select class="input sm" name="tpl_pick" aria-label="Шаблон">${ts.map(t => `<option value="${t.id}" ${t.id === k.tpl ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select><button class="btn sm" type="button" data-act="tpl-fill">Подставить</button>` : ''}<button class="btn sm" type="button" data-act="tpl-from" data-id="${k.id}">${ico('plus')}Сохранить как шаблон</button></div></div>` + eqForm(k.eq, true);
+}
+function eqForm(e, full) {
+  const sel = (name, opts, v) => `<select class="input" name="${name}">${opts.map(o => `<option ${o === v ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
   const sw = (name, on, label) => `<label class="chk"><input type="checkbox" name="${name}" ${on ? 'checked' : ''}><span>${label}</span></label>`;
   return `<div class="sec">Контрольно-кассовая техника</div>
     <div class="row2"><div class="field"><label>Модель</label>${sel('kkt_model', KKT_MODELS, e.kkt.model)}</div><div class="field"><label>Подключение</label>${sel('kkt_conn', CONNS, e.kkt.conn)}</div></div>
-    <div class="row2"><div class="field"><label>Номер ФН</label><input class="input num" name="kkt_fn" value="${esc(e.kkt.fn)}"></div><div class="field"><label>ФН действует до</label><input class="input" type="date" name="kkt_till" value="${esc(e.kkt.fnTill)}"></div></div>
-    <div class="field"><label>IP-адрес (если подключение по сети)</label><input class="input num" name="kkt_ip" placeholder="192.168.0.50" value="${esc(e.kkt.ip)}"></div>
+    ${full ? `<div class="row2"><div class="field"><label>Номер ФН</label><input class="input num" name="kkt_fn" value="${esc(e.kkt.fn)}"></div><div class="field"><label>ФН действует до</label><input class="input" type="date" name="kkt_till" value="${esc(e.kkt.fnTill)}"></div></div>
+    <div class="field"><label>IP-адрес (если подключение по сети)</label><input class="input num" name="kkt_ip" placeholder="192.168.0.50" value="${esc(e.kkt.ip)}"></div>` : ''}
     <div class="sec">Эквайринг</div>
     <div class="row2"><div class="field"><label>Терминал</label>${sel('acq_model', ACQ_MODELS, e.acq.model)}</div><div class="field"><label>Подключение</label>${sel('acq_conn', CONNS, e.acq.conn)}</div></div>
     <div class="sec">Печать и периферия</div>
@@ -212,6 +221,94 @@ function kassaForm(k) {
     <div class="sec">Оплата</div>
     ${sw('sbp', e.sbp, 'Оплата по СБП')}`;
 }
+
+function readEq(fd, e, full) {
+  const g = n => String(fd.get(n) ?? '').trim();
+  Object.assign(e.kkt, { model: g('kkt_model'), conn: g('kkt_conn') });
+  if (full) Object.assign(e.kkt, { fn: g('kkt_fn'), fnTill: g('kkt_till') || e.kkt.fnTill, ip: g('kkt_ip') });
+  Object.assign(e.acq, { model: g('acq_model'), conn: g('acq_conn') });
+  Object.assign(e.printer, { model: g('prn_model'), conn: g('prn_conn') });
+  Object.assign(e.scale, { on: fd.has('scale_on'), model: g('scale_model'), conn: g('scale_conn') });
+  e.display.on = fd.has('disp_on'); e.sbp = fd.has('sbp');
+}
+
+/* ---------- Шаблоны рабочих мест ---------- */
+const tplById = id => D.templates.find(t => t.id === id);
+function tplTag(k) {
+  const t = k.tpl && tplById(k.tpl);
+  if (!t) return '<span class="muted">без шаблона</span>';
+  return tplMatch(k, t) ? `<span class="tag tn" title="${esc(t.name)}">${esc(t.name)}</span>` : `<span class="tag w tn" title="${esc(t.name)}: настройки кассы поменяли после применения шаблона">изменена · ${esc(t.name)}</span>`;
+}
+const eqSummary = e => [
+  ['ККТ', `${e.kkt.model}, ${e.kkt.conn}`], ['Эквайринг', e.acq.model === 'Без терминала' ? 'нет' : `${e.acq.model}, ${e.acq.conn}`],
+  ['Принтер', `${e.printer.model}, ${e.printer.conn}`], ['Весы', e.scale.on ? `${e.scale.model}, ${e.scale.conn}` : 'нет'],
+  ['Дисплей покупателя', e.display.on ? 'есть' : 'нет'], ['СБП', e.sbp ? 'включена' : 'выключена'],
+];
+function pTemplates() {
+  const sc = scope(), ts = D.templates.filter(t => t.org === S.org);
+  return withTree(`${head('Шаблоны рабочих мест', `<button class="btn p" data-act="tpl-add">${ico('plus')}Шаблон из кассы</button>`, sc)}
+    <div class="note">${ico('info')}<span>Настройте одну кассу, сохраните её как шаблон и примените к столовой целиком или к выбранным кассам. <b>Номер ФН, срок ФН и IP-адрес не переносятся:</b> они у каждой кассы свои. Кассы получат настройки при ближайшей связи.</span></div>
+    ${ts.length ? `<div class="profs">${ts.map(t => {
+      const ks = D.nodes.filter(k => k.type === 'kassa' && k.tpl === t.id), diff = ks.filter(k => !tplMatch(k, t)).length;
+      const src = t.from && nodeById(t.from);
+      return `<div class="prof"><div class="tplhead"><span class="tpl-ic">${ico('tpl')}</span><div style="flex:1;min-width:0"><h4>${esc(t.name)}</h4><div class="muted sm">${src ? `снят с: ${esc(src.name)}, ${esc(nameOf(src.parent))}` : 'создан вручную'}</div></div></div>
+        <dl class="spec">${eqSummary(t.eq).map(([a, b]) => `<dt>${a}</dt><dd>${esc(b)}</dd>`).join('')}</dl>
+        <div class="muted sm">${ks.length ? `Применён к ${ks.length} ${plural(ks.length, 'кассе', 'кассам', 'кассам')}${diff ? `, <span class="warn-t">${diff} ${plural(diff, 'изменена', 'изменены', 'изменены')} вручную</span>` : ', все совпадают'}` : 'Ещё не применён'}</div>
+        <div style="display:flex;gap:6px;margin-top:auto;flex-wrap:wrap"><button class="btn sm p" data-act="tpl-apply" data-id="${t.id}">${ico('check')}Применить</button><button class="btn sm" data-act="tpl-edit" data-id="${t.id}" aria-label="Изменить шаблон" title="Изменить">${ico('pencil')}</button><button class="btn sm bad" data-act="tpl-del" data-id="${t.id}" aria-label="Удалить шаблон" title="Удалить">${ico('trash')}</button></div></div>`;
+    }).join('')}</div>` : '<div class="card"><div class="empty">Шаблонов пока нет. Настройте кассу и сохраните её как шаблон.</div></div>'}`);
+}
+function tplApplyForm() {
+  const sc = scope(), pre = typeOf(sc) === 'org' ? [] : kassasUnder(sc).map(k => k.id);
+  const halls = D.nodes.filter(n => n.type === 'hall' && n.org === S.org && children(n.id).length);
+  return `<p class="muted" style="margin-bottom:12px">Отметьте столовую, чтобы взять все её кассы, или отдельные кассы.</p>
+    <div class="checks">${halls.map(h => {
+      const ks = children(h.id), all = ks.every(k => pre.includes(k.id));
+      return `<label class="chk"><input type="checkbox" data-act="tpl-hall" data-id="${h.id}" ${all ? 'checked' : ''}>${ico('shop')}<span><b>${esc(h.name)}</b> <span class="muted">· ${esc(nameOf(h.parent))}</span></span></label>` +
+        ks.map(k => `<label class="chk ind1"><input type="checkbox" name="k" value="${k.id}" data-h="${h.id}" ${pre.includes(k.id) ? 'checked' : ''}>${ico('reg')}<span style="flex:1">${esc(k.name)}</span>${tplTag(k)}</label>`).join('');
+    }).join('')}</div>`;
+}
+
+/* ---------- Журнал безопасности ---------- */
+function secFiltered(sc) {
+  const all = secEvents(sc, S.period);
+  return { all, rows: all.filter(e => (!S.secType || e.type === S.secType) && (!S.secWho || e.who === S.secWho) && (!S.secNew || !D.secOk[e.id])) };
+}
+const SEC_COLOR = { w: 'warn', b: 'bad', i: 'info' };
+function pSecurity() {
+  const sc = scope(), { all, rows } = secFiltered(sc);
+  const pick = (list, ...types) => list.filter(e => types.includes(e.type));
+  const sumOf = list => list.reduce((a, e) => a + (e.sum || 0), 0);
+  const hi = rows.filter(e => e.hi && !D.secOk[e.id]).length;
+  const byWho = new Map(), byType = new Map();
+  for (const e of all) { byWho.set(e.who, (byWho.get(e.who) || 0) + 1); byType.set(e.type, (byType.get(e.type) || 0) + 1); }
+  const who = [...byWho].sort((a, b) => b[1] - a[1]), types = Object.keys(SEC_TYPES).filter(t => byType.get(t)).map(t => [t, byType.get(t)]);
+  const mxW = Math.max(1, ...who.map(x => x[1])), mxT = Math.max(1, ...types.map(x => x[1]));
+  const cashiers = [...new Set(all.map(e => e.who))].sort((a, b) => a.localeCompare(b, 'ru'));
+  if (S.secWho && !cashiers.includes(S.secWho)) cashiers.unshift(S.secWho);
+  const LIM = 200, cr = pick(rows, 'cancel', 'refund'), rm = pick(rows, 'remove'), ds = pick(rows, 'discount');
+  return withTree(`${head('Журнал безопасности', `<button class="btn" data-act="sec-export">${ico('down')}Скачать CSV</button>`, sc)}
+    <div class="filters"><div class="seg">${PERIODS.map(([id, l]) => `<button class="${S.period === id ? 'on' : ''}" data-act="period" data-id="${id}">${l}</button>`).join('')}</div>
+      <select class="input sm" data-chg="secType" aria-label="Вид события"><option value="">Все события</option>${Object.entries(SEC_TYPES).map(([k, v]) => `<option value="${k}" ${S.secType === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select>
+      <select class="input sm" data-chg="secWho" aria-label="Кассир"><option value="">Все кассиры</option>${cashiers.map(c => `<option ${S.secWho === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <label class="chk"><input type="checkbox" data-chg="secNew" ${S.secNew ? 'checked' : ''}><span>Только непроверенные</span></label></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Событий</div><div class="v">${nm(rows.length)}</div><div class="d">${hi ? `<span class="warn-t">${hi} ${plural(hi, 'требует', 'требуют', 'требуют')} внимания</span>` : 'срочных нет'}</div></div>
+      <div class="kpi"><div class="l">Отмены и возвраты</div><div class="v">${rub(sumOf(cr))}</div><div class="d">${cr.length} шт.</div></div>
+      <div class="kpi"><div class="l">Убрано из чеков</div><div class="v">${rub(sumOf(rm))}</div><div class="d">${rm.length} шт.</div></div>
+      <div class="kpi"><div class="l">Скидки вручную</div><div class="v">${rub(sumOf(ds))}</div><div class="d">${ds.length} шт.</div></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>По кассирам</h3><div class="bars">${who.map(([w, c]) => `<button class="bar link ${S.secWho === w ? 'on' : ''}" data-act="sec-who" data-id="${esc(w)}" title="Показать только этого кассира"><span class="nm">${esc(w)}</span><span class="t"><i style="width:${c / mxW * 100}%"></i></span><span class="vl num">${c}</span></button>`).join('') || '<div class="empty">Нет событий</div>'}</div></div>
+      <div class="card"><h3>По видам</h3><div class="bars">${types.map(([t, c]) => `<button class="bar link ${S.secType === t ? 'on' : ''}" data-act="sec-type" data-id="${t}" title="Показать только этот вид"><span class="nm">${SEC_TYPES[t][0]}</span><span class="t"><i style="width:${c / mxT * 100}%;background:var(--${SEC_COLOR[SEC_TYPES[t][1]]})"></i></span><span class="vl num">${c}</span></button>`).join('') || '<div class="empty">Нет событий</div>'}</div></div>
+    </div>
+    <div class="card flush">${rows.length ? `<table><tr><th>Когда</th><th>Кассир и касса</th><th>Событие</th><th class="r">Чек</th><th class="r">Сумма</th><th class="acts"></th></tr>${rows.slice(0, LIM).map(e => {
+      const k = nodeById(e.kassa), ok = D.secOk[e.id], ty = SEC_TYPES[e.type];
+      return `<tr class="${ok ? 'dim' : ''}"><td class="num muted" style="white-space:nowrap">${stamp(e.t)}</td><td><span style="white-space:nowrap">${esc(e.who)}</span><div class="muted sm">${esc(k.name)} · ${esc(nameOf(k.parent))}, ${esc(nameOf(nodeById(k.parent).parent))}</div></td>
+        <td><span class="tag ${ty[1]}">${ty[0]}</span>${e.hi && !ok ? ' <span class="tag b">внимание</span>' : ''}<div class="muted sm">${esc(e.text)}</div></td><td class="r num muted" style="white-space:nowrap">${e.chk ? '№ ' + e.chk : '—'}</td><td class="r num" style="white-space:nowrap">${e.sum != null ? `<b>${rub(e.sum)}</b>` : '—'}</td>
+        <td class="acts"><button class="ibtn ${ok ? 'ok' : ''}" data-act="sec-ok" data-id="${e.id}" title="${ok ? 'Снять отметку' : 'Отметить проверенным'}" aria-pressed="${!!ok}">${ico('check')}</button></td></tr>`;
+    }).join('')}</table>${rows.length > LIM ? `<div class="muted" style="padding:8px 14px">Показаны последние ${LIM} из ${rows.length}. Сузьте период или выберите кассира.</div>` : ''}` : `<div class="empty">За этот период событий нет.${S.period === 'today' || S.period === 'yesterday' ? `<div style="margin-top:10px"><button class="btn sm" data-act="period" data-id="week">Показать за 7 дней</button></div>` : ''}</div>`}</div>`);
+}
+const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
 
 /* ---------- Отчёты ---------- */
 const PERIODS = [['today', 'Сегодня'], ['yesterday', 'Вчера'], ['week', '7 дней'], ['month', '30 дней']];
@@ -363,28 +460,97 @@ const A = {
   'kassa-open'(el) {
     const k = nodeById(el.dataset.id);
     openModal({ title: k.name + ' · ' + nameOf(k.parent), sheet: true, body: kassaForm(k), save: fd => {
-      const g = n => String(fd.get(n) ?? '').trim(), e = k.eq;
-      Object.assign(e.kkt, { model: g('kkt_model'), conn: g('kkt_conn'), fn: g('kkt_fn'), fnTill: g('kkt_till') || e.kkt.fnTill, ip: g('kkt_ip') });
-      Object.assign(e.acq, { model: g('acq_model'), conn: g('acq_conn') });
-      Object.assign(e.printer, { model: g('prn_model'), conn: g('prn_conn') });
-      Object.assign(e.scale, { on: fd.has('scale_on'), model: g('scale_model'), conn: g('scale_conn') });
-      e.display.on = fd.has('disp_on'); e.sbp = fd.has('sbp');
+      readEq(fd, k.eq, true);
+      const ft = $('#mform').dataset.tpl, tf = ft && tplById(ft);
+      if (tf && tplMatch(k, tf)) k.tpl = ft;
       logAct(`${k.name}: изменены настройки оборудования`, k.id, S.org);
       toast('Сохранено. Касса применит настройки при ближайшей связи');
     } });
   },
 
+  /* шаблоны */
+  'tpl-add'() {
+    const ks = kassasUnder(S.org);
+    if (!ks.length) { toast('Сначала заведите кассу'); return; }
+    const pre = kassasUnder(scope())[0] || ks[0];
+    openModal({ title: 'Шаблон из кассы', label: 'Создать', body: `<div class="field"><label for="f-k">Касса-образец</label><select class="input" id="f-k" name="k">${ks.map(k => `<option value="${k.id}" ${k === pre ? 'selected' : ''}>${esc(k.name)} · ${esc(nameOf(k.parent))}, ${esc(nameOf(nodeById(k.parent).parent))}</option>`).join('')}</select></div>
+      <div class="field"><label for="f-name">Название шаблона</label><input class="input" id="f-name" name="name" required placeholder="Например: касса раздачи"></div>`, save: fd => tplCreate(nodeById(fd.get('k')), String(fd.get('name')).trim()) });
+  },
+  'tpl-from'(el) {
+    const k = nodeById(el.dataset.id);
+    closeModal();
+    askName('Шаблон из «' + k.name + '»', '', v => tplCreate(k, v));
+  },
+  'tpl-fill'() {
+    const f = $('#mform'), t = tplById(f.elements.tpl_pick.value), e = t.eq;
+    const set = (n, v) => { const x = f.elements[n]; if (x) { if (x.type === 'checkbox') x.checked = v; else x.value = v; } };
+    set('kkt_model', e.kkt.model); set('kkt_conn', e.kkt.conn); set('acq_model', e.acq.model); set('acq_conn', e.acq.conn);
+    set('prn_model', e.printer.model); set('prn_conn', e.printer.conn); set('scale_on', e.scale.on); set('scale_model', e.scale.model); set('scale_conn', e.scale.conn);
+    set('disp_on', e.display.on); set('sbp', e.sbp);
+    f.dataset.tpl = t.id;
+    toast('Подставлено. Нажмите «Сохранить», чтобы отправить на кассу');
+  },
+  'tpl-edit'(el) {
+    const t = tplById(el.dataset.id);
+    openModal({ title: 'Шаблон «' + t.name + '»', sheet: true, body: `<div class="field"><label for="f-name">Название</label><input class="input" id="f-name" name="name" required value="${esc(t.name)}"></div>${eqForm(t.eq, false)}
+      <p class="hint" style="margin-top:8px">Правка шаблона сама на кассы не уходит. Чтобы отправить её, нажмите «Применить» на карточке шаблона.</p>`, save: fd => {
+      const name = String(fd.get('name')).trim(); if (!name) { toast('Введите название'); return false; }
+      t.name = name; readEq(fd, t.eq, false); logAct(`Изменён шаблон «${name}»`, S.org, S.org);
+    } });
+  },
+  'tpl-del'(el) {
+    const t = tplById(el.dataset.id), used = D.nodes.filter(k => k.tpl === t.id).length;
+    openModal({ title: 'Удалить шаблон «' + t.name + '»?', label: 'Удалить', danger: true, body: `<p class="muted">${used ? `Кассы (${used}) сохранят свои настройки и останутся без шаблона.` : 'Шаблон ни к одной кассе не применён.'}</p>`, save: () => {
+      D.nodes.forEach(k => { if (k.tpl === t.id) delete k.tpl; }); D.templates = D.templates.filter(x => x !== t); logAct(`Удалён шаблон «${t.name}»`, S.org, S.org);
+    } });
+  },
+  'tpl-apply'(el) {
+    const t = tplById(el.dataset.id);
+    openModal({ title: 'Применить «' + t.name + '»', body: tplApplyForm(), label: 'Применить', save: fd => {
+      const ks = fd.getAll('k').map(nodeById);
+      if (!ks.length) { toast('Отметьте кассы'); return false; }
+      ks.forEach(k => applyTpl(k, t));
+      [...new Set(ks.map(k => k.parent))].forEach(h => logAct(`Шаблон «${t.name}» применён: ${ks.filter(k => k.parent === h).map(k => k.name).join(', ')}`, h, S.org));
+      toast(`Применено к ${ks.length} ${plural(ks.length, 'кассе', 'кассам', 'кассам')}. Кассы получат настройки при ближайшей связи`);
+    } });
+  },
+  'tpl-hall'(el) { document.querySelectorAll(`#mform input[data-h="${el.dataset.id}"]`).forEach(x => { x.checked = el.checked; }); },
+
+  /* безопасность */
+  'sec-open'(el) { S.period = el.dataset.id; S.page = 'security'; render(); },
+  'sec-ok'(el) { const id = el.dataset.id; if (D.secOk[id]) delete D.secOk[id]; else D.secOk[id] = 1; save(); render(); },
+  'sec-who'(el) { S.secWho = S.secWho === el.dataset.id ? '' : el.dataset.id; render(); },
+  'sec-type'(el) { S.secType = S.secType === el.dataset.id ? '' : el.dataset.id; render(); },
+  'sec-export'() {
+    const sc = scope(), { rows } = secFiltered(sc), p = PERIODS.find(x => x[0] === S.period)[1];
+    const lines = [['Когда', 'Касса', 'Где', 'Кассир', 'Событие', 'Подробно', 'Чек', 'Сумма', 'Внимание', 'Проверено'], ...rows.map(e => { const k = nodeById(e.kassa); return [new Date(e.t).toLocaleString('ru-RU'), k.name, nameOf(k.parent) + ', ' + nameOf(nodeById(k.parent).parent), e.who, SEC_TYPES[e.type][0], e.text, e.chk || '', e.sum ?? '', e.hi ? 'да' : '', D.secOk[e.id] ? 'да' : '']; })];
+    downloadCsv(lines, `bezopasnost-${nameOf(sc)}-${p}.csv`);
+    toast('Журнал скачан');
+  },
+
   export() {
     const sc = scope(), s = salesFor(sc, S.period), p = PERIODS.find(x => x[0] === S.period)[1];
     const lines = [[s.levelLabel === 'Дни' ? 'День' : 'Название', 'Чеков', 'Средний чек', 'Выручка'], ...s.rows.map(r => [r.name, r.checks, Math.round(r.avg), Math.round(r.sum)]), ['Итого', s.tot.checks, Math.round(s.avg), Math.round(s.tot.sum)]];
-    const csv = '﻿' + lines.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(';')).join('\r\n');
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); a.download = `otchet-${nameOf(sc)}-${p}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    downloadCsv(lines, `otchet-${nameOf(sc)}-${p}.csv`);
     toast('Отчёт скачан');
   },
 
   mclose() { closeModal(); },
   msave() { submitModal(); },
 };
+
+function downloadCsv(lines, name) {
+  const csv = '﻿' + lines.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(';')).join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function tplCreate(k, name) {
+  if (!name) { toast('Введите название'); return false; }
+  const t = { id: uid('t'), org: S.org, name, eq: tplEq(k.eq), from: k.id };
+  D.templates.push(t); k.tpl = t.id;
+  logAct(`Создан шаблон «${name}» из «${k.name}»`, k.id, S.org);
+  S.page = 'templates';
+  toast('Шаблон создан. Примените его к столовой или кассам');
+}
 
 function saveUser(fd, u) {
   const name = String(fd.get('name')).trim(), pin = String(fd.get('pin')).trim(), access = fd.getAll('acc');
@@ -412,6 +578,10 @@ document.addEventListener('click', e => {
   if (S.orgOpen && !e.target.closest('.orgsw')) { S.orgOpen = false; render(); }
   const el = e.target.closest('[data-act]');
   if (el && A[el.dataset.act]) A[el.dataset.act](el);
+});
+document.addEventListener('change', e => {
+  const k = e.target.dataset.chg; if (!k) return;
+  S[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; render();
 });
 document.addEventListener('submit', e => { if (e.target.id === 'mform') { e.preventDefault(); submitModal(); } });
 document.addEventListener('keydown', e => {

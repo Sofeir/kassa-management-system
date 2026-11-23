@@ -202,3 +202,32 @@ td.acts{text-align:right;white-space:nowrap;width:1%}
   .content{padding:16px}
   .row2{grid-template-columns:1fr}
 }
+
+/* ---------- шаблоны рабочих мест ---------- */
+.muted.sm,.sm.muted{font-size:12.5px}
+.warn-t{color:var(--warn-tx);font-weight:600}
+.tplhead{display:flex;gap:10px;align-items:flex-start}
+.tpl-ic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--acc-soft);color:var(--acc-tx);border:1px solid var(--acc-line);flex:none}
+.spec{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13.5px;padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.spec dt{color:var(--tx-3)}
+.spec dd{margin:0;color:var(--tx);min-width:0;overflow-wrap:anywhere}
+.tplbar{display:flex;flex-direction:column;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:12px;margin-bottom:16px;font-size:14px}
+.tplbar>svg{display:none}
+.tplbar .grow{color:var(--tx-2)}
+.tplrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.tplrow select{flex:1;min-width:160px}
+.input.sm{min-height:36px;padding:6px 10px;font-size:14px;width:auto}
+.chk .tag{margin-left:auto}
+
+/* ---------- журнал безопасности ---------- */
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.filters select{min-width:170px}
+.filters .chk{padding:6px 4px}
+.bar.link{border:0;background:none;padding:4px 6px;margin:-4px -6px;border-radius:8px;text-align:left;width:calc(100% + 12px);color:inherit}
+.bar.link.on{background:var(--acc-soft);box-shadow:inset 0 0 0 1px var(--acc-line)}
+.ibtn.ok{color:var(--acc-tx);background:var(--acc-soft);border-color:var(--acc-line)}
+@media (hover:hover){ .bar.link:hover:not(.on){background:var(--card-hi)} }
+.note .btn{margin-top:-4px;margin-bottom:-4px}
+
+/* имя шаблона в таблице: не раздувает колонку */
+.tag.tn{display:inline-block;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}

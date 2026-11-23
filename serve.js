@@ -1,5 +1,5 @@
-// Статический сервер для тестовой версии «ASOFT Управление»: node manager/serve.js [порт]
-// Корневой package.json объявляет "type": "module", поэтому здесь import, а не require.
+// Статический сервер для тестовой версии «ASOFT Управление»: node serve.js [порт]
+// package.json объявляет "type": "module", поэтому здесь import, а не require.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';

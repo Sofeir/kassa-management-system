@@ -33,6 +33,6 @@ npm start
 
 ## Файлы
 
-- `index.html`, `css/manager.css`, `js/store.js` (данные и расчёты), `js/app.js` (интерфейс).
+- `index.html`, `css/manager.css`, `js/store.js` (данные и расчёты), `js/app.js` (интерфейс), `js/select.js` (единые выпадающие списки и календарь).
 - `serve.js`: простой статический сервер.
 - `docs/site-variants.html`: варианты интерфейса, из которых выбран текущий.

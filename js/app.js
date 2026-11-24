@@ -14,10 +14,12 @@ const ST = { online: ['', 'на связи'], late: ['w', 'давно'], offline
 /* ---------- состояние ---------- */
 const UI_KEY = 'asoft-mgr-ui';
 load();
-const S = Object.assign({ org: D.orgs[0].id, page: 'overview', node: null, period: 'today', uTab: 'users', folded: {}, orgOpen: false, secType: '', secWho: '', secNew: false },
+const S = Object.assign({ org: D.orgs[0].id, page: 'overview', node: null, period: 'today', uTab: 'users', orgOpen: false, secType: '', secWho: '', secNew: false },
   (() => { try { return JSON.parse(localStorage.getItem(UI_KEY)) || {}; } catch (_) { return {}; } })());
 S.orgOpen = false;
-function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify({ org: S.org, page: S.page, node: S.node, period: S.period, uTab: S.uTab, folded: S.folded, secType: S.secType, secWho: S.secWho, secNew: S.secNew })); } catch (_) {} }
+/* дерево «Где работаем» при каждом входе свёрнуто по максимуму: раскрытое хранится только на время сеанса */
+S.opened = {}; S.node = null;
+function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify({ org: S.org, page: S.page, node: S.node, period: S.period, uTab: S.uTab, secType: S.secType, secWho: S.secWho, secNew: S.secNew })); } catch (_) {} }
 function fixState() {
   if (!orgById(S.org)) S.org = D.orgs[0].id;
   if (S.node && (!nodeById(S.node) || nodeById(S.node).org !== S.org)) S.node = null;
@@ -75,7 +77,7 @@ const withTree = inner => `<div class="split">${treePanel()}<div class="pane">${
 function treePanel() {
   const sel = scope();
   const rows = (pid, d) => children(pid).map(n => {
-    const kids = children(n.id).length, shut = S.folded[n.id];
+    const kids = children(n.id).length, shut = !S.opened[n.id];
     const right = n.type === 'kassa' ? `<span class="dot ${ST[statusOf(n)][0]}" title="${ST[statusOf(n)][1]}"></span>` : `<span class="cnt">${kassasUnder(n.id).length}</span>`;
     return `<div class="tn d${d} ${sel === n.id ? 'on' : ''}" data-act="pick" data-id="${n.id}">
       <button class="fold ${kids ? '' : 'none'} ${shut ? 'shut' : ''}" data-act="fold" data-id="${n.id}" aria-label="Свернуть или развернуть">${ico('chev')}</button>
@@ -365,7 +367,7 @@ function askName(title, value, done) {
 const A = {
   nav(el) { S.page = el.dataset.id; if (['menu', 'users'].includes(S.page) && S.node && typeOf(S.node) === 'kassa') S.node = hallOf(S.node); S.orgOpen = false; render(); },
   pick(el) { const id = el.dataset.id; S.node = id === S.org ? null : id; if (['menu', 'users'].includes(S.page) && S.node && typeOf(S.node) === 'kassa') S.node = hallOf(S.node); render(); },
-  fold(el) { S.folded[el.dataset.id] = !S.folded[el.dataset.id]; render(); },
+  fold(el) { S.opened[el.dataset.id] = !S.opened[el.dataset.id]; render(); },
   orgmenu() { S.orgOpen = !S.orgOpen; render(); },
   org(el) { S.org = el.dataset.id; S.node = null; S.orgOpen = false; render(); },
   neworg() {

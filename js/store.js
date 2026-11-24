@@ -180,8 +180,9 @@ function setOver(scope, item, patch) {
 
 /* ---------- шаблоны рабочих мест ---------- */
 // Что переносит шаблон. Номер ФН, срок ФН и IP-адрес ККТ у каждой кассы свои и не переносятся.
+const acqOn = e => e.acq.on !== false && e.acq.model !== 'Без терминала';
 function tplEq(e) {
-  return { kkt: { model: e.kkt.model, conn: e.kkt.conn }, acq: { ...e.acq }, printer: { ...e.printer }, scale: { ...e.scale }, display: { ...e.display }, sbp: e.sbp };
+  return { kkt: { model: e.kkt.model, conn: e.kkt.conn }, acq: { model: e.acq.model, conn: e.acq.conn, on: e.acq.on !== false }, printer: { ...e.printer }, scale: { ...e.scale }, display: { ...e.display }, sbp: e.sbp };
 }
 function applyTpl(k, t) {
   const e = k.eq, s = t.eq;
@@ -190,7 +191,7 @@ function applyTpl(k, t) {
   k.tpl = t.id;
 }
 // касса совпадает с шаблоном?
-const tplMatch = (k, t) => JSON.stringify(tplEq(k.eq)) === JSON.stringify(t.eq);
+const tplMatch = (k, t) => JSON.stringify(tplEq(k.eq)) === JSON.stringify(tplEq(t.eq));
 
 /* ---------- журнал безопасности ----------
    Касса сама пишет подозрительные действия кассира и присылает их вместе с продажами.
